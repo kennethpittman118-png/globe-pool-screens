@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>OTT — Over The Top Screening</title>
+<style>
+  :root {
+    --navy: #0b1d3a;
+    --navy-deep: #061225;
+    --teal: #0f8a9d;
+    --sunset: #f07a2a;
+    --sunset-soft: #f5a05a;
+    --cream: #f6ead2;
+    --cream-dim: rgba(246, 234, 210, 0.55);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--navy-deep);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--cream);
+    -webkit-font-smoothing: antialiased;
+  }
+  #c {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: grab;
+  }
+  #c.dragging { cursor: grabbing; }
+  .vignette-overlay {
+    pointer-events: none;
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at 50% 40%, transparent 35%, rgba(6,18,37,0.55) 75%, rgba(6,18,37,0.85) 100%);
+    z-index: 2;
+  }
+  .wordmark {
+    position: fixed;
+    top: 28px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    text-align: center;
+    pointer-events: none;
+    letter-spacing: 0.42em;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    color: var(--cream-dim);
+  }
+  .wordmark strong {
+    display: block;
+    margin-top: 6px;
+    letter-spacing: 0.18em;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(246, 234, 210, 0.72);
+  }
+  .loc-bar {
+    position: fixed;
+    left: 50%; bottom: 28px;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 2px;
+    max-width: min(920px, calc(100% - 32px));
+    padding: 10px 18px;
+    background: rgba(11, 29, 58, 0.55);
+    border: 1px solid rgba(15, 138, 157, 0.28);
+    border-radius: 999px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  .loc-bar button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--cream-dim);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+    white-space: nowrap;
+  }
+  .loc-bar button:hover {
+    color: var(--cream);
+    background: rgba(15, 138, 157, 0.18);
+  }
+  .loc-bar button.active {
+    color: #061225;
+    background: linear-gradient(135deg, var(--sunset-soft), var(--sunset));
+    box-shadow: 0 0 18px rgba(240, 122, 42, 0.45);
+    font-weight: 600;
+  }
+  .loc-bar button.home { color: var(--cream); }
+  .loc-bar button.home:not(.active)::after {
+    content: "";
+    display: inline-block;
+    width: 5px; height: 5px;
+    margin-left: 7px;
+    border-radius: 50%;
+    background: var(--sunset);
+    box-shadow: 0 0 8px var(--sunset);
+    vertical-align: middle;
+  }
+  .hint {
+    position: fixed;
+    bottom: 78px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 4;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(246, 234, 210, 0.28);
+    pointer-events: none;
+    transition: opacity 0.6s ease;
+  }
+  .hint.hide { opacity: 0; }
+  @media (max-width: 640px) {
+    .loc-bar { border-radius: 18px; padding: 8px 10px; gap: 2px; }
+    .loc-bar button { font-size: 9px; padding: 7px 8px; letter-spacing: 0.08em; }
+    .wordmark { font-size: 9px; top: 18px; }
+    .hint { bottom: 96px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="vignette-overlay"></div>
+  <div class="wordmark">Over The Top Screening<strong>Florida Pool Enclosures</strong></div>
+  <div class="hint" id="hint">Drag to explore · Tap a marker</div>
+  <nav class="loc-bar" id="locBar" aria-label="Featured locations"></nav>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const NAVY_DEEP = 0x061225;
+const TEAL = 0x0f8a9d;
+const TEAL_BRIGHT = 0x1ab8c9;
+const SUNSET = 0xf07a2a;
+const CREAM = 0xf6ead2;
+
+const LOCATIONS = [
+  { id: 'bradenton', name: 'Bradenton, FL', lat: 27.4989, lon: -82.5748, home: true },
+  { id: 'sarasota',  name: 'Sarasota, FL',  lat: 27.3364, lon: -82.5307 },
+  { id: 'tampa',     name: 'Tampa, FL',     lat: 27.9506, lon: -82.4572 },
+  { id: 'stpete',    name: 'St. Petersburg, FL', lat: 27.7676, lon: -82.6403 },
+  { id: 'naples',    name: 'Naples, FL',    lat: 26.1420, lon: -81.7948 },
+  { id: 'orlando',   name: 'Orlando, FL',   lat: 28.5383, lon: -81.3792 },
+  { id: 'miami',     name: 'Miami, FL',     lat: 25.7617, lon: -80.1918 },
+];
+
+const GLOBE_R = 1.6;
+const MARKER_R = GLOBE_R + 0.025;
+
+function latLonToVec3(lat, lon, radius) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -radius * Math.sin(phi) * Math.cos(theta),
+     radius * Math.cos(phi),
+     radius * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+/* ---------- renderer ---------- */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.setClearColor(NAVY_DEEP, 1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(NAVY_DEEP, 0.028);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+const defaultCamPos = new THREE.Vector3(0, 0.55, 5.4);
+const defaultLook = new THREE.Vector3(0, 0, 0);
+camera.position.copy(defaultCamPos);
+
+scene.add(new THREE.AmbientLight(0x3a5a78, 0.55));
+scene.add(new THREE.HemisphereLight(0x9ec8e0, 0x1a2840, 0.55));
+const key = new THREE.DirectionalLight(0xffe0c0, 1.15);
+key.position.set(4, 3.5, 2.5);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x4ec8d8, 0.35);
+fill.position.set(-3, 1, -2);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(SUNSET, 0.4);
+rim.position.set(-2, 0.5, -4);
+scene.add(rim);
+
+/* stars */
+(function makeStars() {
+  const n = 1400;
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const r = 40 + Math.random() * 60;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    pos[i*3] = r * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = r * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = r * Math.cos(ph);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({
+    color: CREAM, size: 0.08, sizeAttenuation: true, transparent: true, opacity: 0.7, depthWrite: false,
+  })));
+})();
+
+const globeGroup = new THREE.Group();
+scene.add(globeGroup);
+// Start with Bradenton roughly facing the camera
+{
+  const local = latLonToVec3(27.4989, -82.5748, 1).normalize();
+  const desired = new THREE.Vector3(0, 0.08, 1).normalize();
+  globeGroup.quaternion.setFromUnitVectors(local, desired);
+  const e = new THREE.Euler().setFromQuaternion(globeGroup.quaternion, 'XYZ');
+  globeGroup.rotation.copy(e);
+}
+
+/* ocean */
+globeGroup.add(new THREE.Mesh(
+  new THREE.SphereGeometry(GLOBE_R, 96, 96),
+  new THREE.MeshStandardMaterial({
+    color: 0x0a2a4a, roughness: 0.55, metalness: 0.25,
+    emissive: 0x051525, emissiveIntensity: 0.35,
+  })
+));
+
+/* lat/long grid */
+(function makeGrid() {
+  const pts = [];
+  for (let lat = -80; lat <= 80; lat += 20) {
+    const ring = [];
+    for (let lon = 0; lon <= 360; lon += 3) ring.push(latLonToVec3(lat, lon - 180, GLOBE_R + 0.002));
+    for (let i = 0; i < ring.length - 1; i++) pts.push(ring[i], ring[i + 1]);
+  }
+  for (let lon = -180; lon < 180; lon += 20) {
+    const mer = [];
+    for (let lat = -90; lat <= 90; lat += 3) mer.push(latLonToVec3(lat, lon, GLOBE_R + 0.002));
+    for (let i = 0; i < mer.length - 1; i++) pts.push(mer[i], mer[i + 1]);
+  }
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  globeGroup.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({
+    color: TEAL, transparent: true, opacity: 0.18,
+  })));
+})();
+
+/* land dots */
+(function makeLand() {
+  const land = [];
+  for (let i = 0; i < 900; i++) {
+    const lat = 24 + Math.random() * 12;
+    const lon = -87 + Math.random() * 12;
+    const inFL = lat > 24.5 && lat < 31 && lon > -87.5 && lon < -80;
+    if (inFL || Math.random() < 0.35) land.push({ lat, lon });
+  }
+  for (let i = 0; i < 2200; i++) {
+    const lat = -55 + Math.random() * 110;
+    const lon = -120 + Math.random() * 90;
+    if (lon > -30) continue;
+    land.push({ lat, lon });
+  }
+  for (let i = 0; i < 1600; i++) {
+    land.push({ lat: -35 + Math.random() * 85, lon: -20 + Math.random() * 140 });
+  }
+  const pos = new Float32Array(land.length * 3);
+  for (let i = 0; i < land.length; i++) {
+    const v = latLonToVec3(land[i].lat, land[i].lon, GLOBE_R + 0.006);
+    pos[i*3] = v.x; pos[i*3+1] = v.y; pos[i*3+2] = v.z;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const landPoints = new THREE.Points(g, new THREE.PointsMaterial({
+    color: 0xc9b896, size: 0.010, sizeAttenuation: true, transparent: true, opacity: 0.75, depthWrite: false,
+  }));
+  landPoints.name = 'landPoints';
+  globeGroup.add(landPoints);
+})();
+
+/* atmosphere */
+(function makeAtmosphere() {
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: {
+      glowColor: { value: new THREE.Color(TEAL_BRIGHT) },
+      coef: { value: 0.55 }, power: { value: 3.2 },
+    },
+    vertexShader: `
+      varying vec3 vNormal; varying vec3 vWorldPos;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 wp = modelViewMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * wp;
+      }`,
+    fragmentShader: `
+      uniform vec3 glowColor; uniform float coef; uniform float power;
+      varying vec3 vNormal; varying vec3 vWorldPos;
+      void main() {
+        vec3 viewDir = normalize(-vWorldPos);
+        float intensity = pow(coef - dot(vNormal, viewDir), power);
+        gl_FragColor = vec4(glowColor, 1.0) * intensity * 0.55;
+      }`,
+  });
+  globeGroup.add(new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R * 1.08, 64, 64), mat));
+  globeGroup.add(new THREE.Mesh(
+    new THREE.SphereGeometry(GLOBE_R * 1.22, 48, 48),
+    new THREE.MeshBasicMaterial({ color: TEAL, transparent: true, opacity: 0.06, side: THREE.BackSide, depthWrite: false })
+  ));
+})();
+
+/* markers */
+function makeGlowTexture(colorHex, size = 128) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  const col = new THREE.Color(colorHex);
+  const r = Math.round(col.r*255), gr = Math.round(col.g*255), b = Math.round(col.b*255);
+  g.addColorStop(0, `rgba(${r},${gr},${b},1)`);
+  g.addColorStop(0.25, `rgba(${r},${gr},${b},0.7)`);
+  g.addColorStop(0.55, `rgba(${r},${gr},${b},0.2)`);
+  g.addColorStop(1, `rgba(${r},${gr},${b},0)`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const glowTexOrange = makeGlowTexture(SUNSET);
+const glowTexTeal = makeGlowTexture(TEAL_BRIGHT);
+const markerHits = [];
+const markerVisuals = [];
+
+LOCATIONS.forEach((loc) => {
+  const pos = latLonToVec3(loc.lat, loc.lon, MARKER_R);
+  const isHome = !!loc.home;
+  const group = new THREE.Group();
+  group.position.copy(pos);
+  group.lookAt(pos.clone().multiplyScalar(2));
+  group.userData = { locId: loc.id, isHome };
+
+  const hit = new THREE.Mesh(
+    new THREE.SphereGeometry(isHome ? 0.09 : 0.06, 12, 12),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  hit.userData = { locId: loc.id };
+  group.add(hit);
+  markerHits.push(hit);
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(isHome ? 0.028 : 0.016, 16, 16),
+    new THREE.MeshBasicMaterial({ color: isHome ? SUNSET : TEAL_BRIGHT, transparent: true, opacity: 0.95 })
+  );
+  group.add(core);
+
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: isHome ? glowTexOrange : glowTexTeal,
+    blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+    opacity: isHome ? 0.95 : 0.7,
+  }));
+  sprite.scale.set(isHome ? 0.32 : 0.18, isHome ? 0.32 : 0.18, 1);
+  group.add(sprite);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.035, 0.045, 32),
+    new THREE.MeshBasicMaterial({
+      color: isHome ? SUNSET : TEAL_BRIGHT, transparent: true, opacity: 0.55,
+      side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  globeGroup.add(group);
+  markerVisuals.push({ group, sprite, ring, core, isHome, baseScale: isHome ? 0.32 : 0.18 });
+});
+
+/* ---------- Bradenton vignette ---------- */
+const vignette = new THREE.Group();
+const bradPos = latLonToVec3(27.4989, -82.5748, GLOBE_R + 0.01);
+vignette.position.copy(bradPos);
+{
+  const normal = bradPos.clone().normalize();
+  const northPole = new THREE.Vector3(0, 1, 0);
+  let east = new THREE.Vector3().crossVectors(northPole, normal);
+  if (east.lengthSq() < 1e-6) east = new THREE.Vector3(1, 0, 0);
+  east.normalize();
+  const north = new THREE.Vector3().crossVectors(normal, east).normalize();
+  vignette.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(east, normal, north));
+}
+const V = 0.11;
+
+function makeMeshGridTex() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 256, 256);
+  ctx.strokeStyle = 'rgba(200, 220, 230, 0.55)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 256; i += 16) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4, 3);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function makeOTTDeckTex() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2a3a48';
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  for (let y = 0; y < 256; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke(); }
+  for (let x = 0; x < 512; x += 64) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke(); }
+  ctx.font = 'bold 72px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(246, 234, 210, 0.14)';
+  ctx.fillText('OTT', 256, 128);
+  ctx.strokeStyle = 'rgba(246, 234, 210, 0.06)';
+  ctx.lineWidth = 1.5; ctx.strokeText('OTT', 256, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function makeSunsetBackdropTex() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, '#0b1d3a');
+  g.addColorStop(0.35, '#1a3a5c');
+  g.addColorStop(0.55, '#c45a2a');
+  g.addColorStop(0.75, '#f07a2a');
+  g.addColorStop(0.9, '#f5c07a');
+  g.addColorStop(1, '#f6ead2');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 256);
+  ctx.font = '600 28px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(246, 234, 210, 0.09)';
+  ctx.fillText('O   T   T', 256, 168);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function makeSunDiscTex() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 10, 128, 128, 128);
+  g.addColorStop(0, 'rgba(255, 240, 200, 1)');
+  g.addColorStop(0.25, 'rgba(245, 160, 90, 0.95)');
+  g.addColorStop(0.5, 'rgba(240, 122, 42, 0.55)');
+  g.addColorStop(1, 'rgba(240, 122, 42, 0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+const meshTex = makeMeshGridTex();
+const deckTex = makeOTTDeckTex();
+const sunsetTex = makeSunsetBackdropTex();
+const sunTex = makeSunDiscTex();
+
+const deck = new THREE.Mesh(
+  new THREE.PlaneGeometry(V * 5.2, V * 4.2),
+  new THREE.MeshStandardMaterial({ map: deckTex, roughness: 0.9, metalness: 0.05, side: THREE.DoubleSide })
+);
+deck.rotation.x = -Math.PI / 2;
+deck.position.y = 0.001;
+vignette.add(deck);
+
+const pool = new THREE.Mesh(
+  new THREE.BoxGeometry(V * 2.4, V * 0.18, V * 1.6),
+  new THREE.MeshStandardMaterial({
+    color: 0x1a7a9a, roughness: 0.15, metalness: 0.4,
+    emissive: 0x0a4060, emissiveIntensity: 0.45, transparent: true, opacity: 0.92,
+  })
+);
+pool.position.y = V * 0.09;
+vignette.add(pool);
+
+const poolTop = new THREE.Mesh(
+  new THREE.PlaneGeometry(V * 2.35, V * 1.55),
+  new THREE.MeshStandardMaterial({
+    color: 0x3ab0c8, roughness: 0.05, metalness: 0.6,
+    emissive: 0x1a6080, emissiveIntensity: 0.3, transparent: true, opacity: 0.55,
+  })
+);
+poolTop.rotation.x = -Math.PI / 2;
+poolTop.position.y = V * 0.185;
+vignette.add(poolTop);
+
+const alumMat = new THREE.MeshStandardMaterial({
+  color: 0xb8c4cc, roughness: 0.35, metalness: 0.85, emissive: 0x222830, emissiveIntensity: 0.15,
+});
+function post(x, z, h) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(V * 0.035, V * 0.035, h, 8), alumMat);
+  m.position.set(x, h / 2, z);
+  vignette.add(m);
+}
+function beam(x1, y1, z1, x2, y2, z2) {
+  const a = new THREE.Vector3(x1, y1, z1);
+  const b = new THREE.Vector3(x2, y2, z2);
+  const dir = b.clone().sub(a);
+  const len = dir.length();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(V * 0.028, V * 0.028, len, 6), alumMat);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  vignette.add(m);
+}
+
+const pw = V * 1.35, pd = V * 0.95, wallH = V * 1.55, ridgeH = V * 2.15;
+[-pw, pw].forEach(x => { [-pd, pd].forEach(z => post(x, z, wallH)); });
+post(0, -pd, wallH); post(0, pd, wallH); post(-pw, 0, wallH); post(pw, 0, wallH);
+beam(-pw, wallH, -pd, pw, wallH, -pd);
+beam(-pw, wallH,  pd, pw, wallH,  pd);
+beam(-pw, wallH, -pd, -pw, wallH, pd);
+beam( pw, wallH, -pd,  pw, wallH, pd);
+beam(-pw, wallH, -pd, 0, ridgeH, 0);
+beam( pw, wallH, -pd, 0, ridgeH, 0);
+beam(-pw, wallH,  pd, 0, ridgeH, 0);
+beam( pw, wallH,  pd, 0, ridgeH, 0);
+beam(0, wallH, -pd, 0, ridgeH, 0);
+beam(0, wallH,  pd, 0, ridgeH, 0);
+beam(-pw, wallH, 0, 0, ridgeH, 0);
+beam( pw, wallH, 0, 0, ridgeH, 0);
+
+const screenMat = new THREE.MeshStandardMaterial({
+  map: meshTex, color: 0xc5d8e0, transparent: true, opacity: 0.55,
+  roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide, depthWrite: false,
+  emissive: 0x1a3040, emissiveIntensity: 0.25,
+});
+function sidePanel(w, h, x, y, z, rotY) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), screenMat.clone());
+  m.position.set(x, y, z); m.rotation.y = rotY; vignette.add(m);
+}
+sidePanel(pw * 2, wallH, 0, wallH / 2, -pd, 0);
+sidePanel(pw * 2, wallH, 0, wallH / 2,  pd, 0);
+sidePanel(pd * 2, wallH, -pw, wallH / 2, 0, Math.PI / 2);
+sidePanel(pd * 2, wallH,  pw, wallH / 2, 0, Math.PI / 2);
+function roofPanel(ax, az, bx, bz) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    ax, wallH, az, bx, wallH, bz, 0, ridgeH, 0,
+  ]), 3));
+  geo.computeVertexNormals();
+  vignette.add(new THREE.Mesh(geo, screenMat.clone()));
+}
+roofPanel(-pw, -pd,  pw, -pd);
+roofPanel(-pw,  pd,  pw,  pd);
+roofPanel(-pw, -pd, -pw,  pd);
+roofPanel( pw, -pd,  pw,  pd);
+
+function makePalm(x, z, scale = 1) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(V * 0.05 * scale, V * 0.07 * scale, V * 2.2 * scale, 8),
+    new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.9 })
+  );
+  trunk.position.y = V * 1.1 * scale;
+  trunk.rotation.z = 0.08;
+  g.add(trunk);
+  const frondMat = new THREE.MeshStandardMaterial({
+    color: 0x1f7a4a, roughness: 0.7, side: THREE.DoubleSide,
+    emissive: 0x0a3020, emissiveIntensity: 0.15,
+  });
+  for (let i = 0; i < 7; i++) {
+    const frond = new THREE.Mesh(new THREE.PlaneGeometry(V * 1.3 * scale, V * 0.28 * scale), frondMat);
+    const ang = (i / 7) * Math.PI * 2;
+    frond.position.set(Math.cos(ang) * V * 0.15 * scale, V * 2.15 * scale, Math.sin(ang) * V * 0.15 * scale);
+    frond.rotation.y = ang; frond.rotation.z = -0.55; frond.rotation.x = 0.2;
+    g.add(frond);
+  }
+  g.position.set(x, 0, z);
+  vignette.add(g);
+}
+makePalm(-V * 1.85, V * 1.15, 0.85);
+makePalm(V * 1.9, V * 0.95, 0.72);
+makePalm(-V * 1.55, -V * 1.35, 0.65);
+
+// Tilted sunset sky so it reads when the camera looks down onto Bradenton from outside
+const backdrop = new THREE.Mesh(
+  new THREE.PlaneGeometry(V * 8.5, V * 4.5),
+  new THREE.MeshBasicMaterial({ map: sunsetTex, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide })
+);
+backdrop.position.set(0, V * 1.9, -V * 2.2);
+backdrop.rotation.x = -0.55; // lean back toward the horizon
+vignette.add(backdrop);
+
+const sun = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: sunTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.95,
+}));
+sun.scale.set(V * 3.2, V * 3.2, 1);
+sun.position.set(V * 0.3, V * 2.6, -V * 1.8);
+vignette.add(sun);
+
+globeGroup.add(vignette);
+
+/* ---------- UI ---------- */
+const locBar = document.getElementById('locBar');
+const locButtons = {};
+LOCATIONS.forEach((loc) => {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = loc.name;
+  btn.dataset.id = loc.id;
+  if (loc.home) btn.classList.add('home');
+  btn.addEventListener('click', (e) => { e.stopPropagation(); focusLocation(loc.id); });
+  locBar.appendChild(btn);
+  locButtons[loc.id] = btn;
+});
+function setActiveButton(id) {
+  Object.entries(locButtons).forEach(([k, b]) => b.classList.toggle('active', k === id));
+}
+
+/* ---------- interaction ---------- */
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let isDragging = false;
+let dragMoved = false;
+let lastX = 0, lastY = 0;
+let velY = 0, velX = 0;
+let autoRotate = true;
+let focusedId = null;
+let idleTimer = null;
+let focusingGlobe = false;
+const IDLE_RESUME_MS = 5000;
+const FOCUS_IDLE_MS = 9000;
+
+const targetCamPos = defaultCamPos.clone();
+const targetLook = defaultLook.clone();
+const currentLook = defaultLook.clone();
+let camAnimating = false;
+const targetGlobeQuat = new THREE.Quaternion();
+const _tmpQ = new THREE.Quaternion();
+const _tmpE = new THREE.Euler();
+
+function clearIdle() { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } }
+function scheduleResume(ms = IDLE_RESUME_MS) {
+  clearIdle();
+  idleTimer = setTimeout(() => {
+    if (focusedId) unfocus();
+    else { autoRotate = true; velX *= 0.2; velY *= 0.2; }
+  }, ms);
+}
+
+function focusLocation(id) {
+  const loc = LOCATIONS.find(l => l.id === id);
+  if (!loc) return;
+  focusedId = id;
+  autoRotate = false;
+  focusingGlobe = true;
+  velX = velY = 0;
+  setActiveButton(id);
+  document.getElementById('hint').classList.add('hide');
+  const lp = globeGroup.getObjectByName('landPoints');
+  if (lp) lp.material.opacity = loc.home ? 0.12 : 0.35;
+
+  const local = latLonToVec3(loc.lat, loc.lon, 1).normalize();
+  const desired = new THREE.Vector3(0, 0.08, 1).normalize();
+  targetGlobeQuat.setFromUnitVectors(local, desired);
+
+  const zoom = loc.home ? 2.35 : 2.95;
+  targetCamPos.set(0, loc.home ? 0.38 : 0.35, zoom);
+  targetLook.set(0, loc.home ? 0.06 : 0.04, 0);
+  camAnimating = true;
+  scheduleResume(FOCUS_IDLE_MS);
+}
+
+function unfocus() {
+  focusedId = null;
+  focusingGlobe = false;
+  setActiveButton(null);
+  targetCamPos.copy(defaultCamPos);
+  targetLook.copy(defaultLook);
+  camAnimating = true;
+  autoRotate = true;
+  clearIdle();
+  const lp = globeGroup.getObjectByName('landPoints');
+  if (lp) lp.material.opacity = 0.75;
+}
+
+function getXY(e) {
+  if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  if (e.changedTouches && e.changedTouches.length) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+  return { x: e.clientX, y: e.clientY };
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  const { x, y } = getXY(e);
+  isDragging = true; dragMoved = false;
+  lastX = x; lastY = y; velX = velY = 0;
+  autoRotate = false; clearIdle();
+  canvas.classList.add('dragging');
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!isDragging) return;
+  const { x, y } = getXY(e);
+  const dx = x - lastX, dy = y - lastY;
+  if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+  lastX = x; lastY = y;
+  const rotY = dx * 0.005, rotX = dy * 0.004;
+  globeGroup.rotation.y += rotY;
+  globeGroup.rotation.x = Math.max(-0.9, Math.min(0.9, globeGroup.rotation.x + rotX));
+  velX = rotY; velY = rotX;
+  focusingGlobe = false;
+  if (focusedId) { focusedId = null; setActiveButton(null); }
+});
+
+function endDrag(e) {
+  if (!isDragging) return;
+  isDragging = false;
+  canvas.classList.remove('dragging');
+  if (!dragMoved) {
+    const { x, y } = getXY(e);
+    pointer.x = (x / window.innerWidth) * 2 - 1;
+    pointer.y = -(y / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(markerHits, false);
+    if (hits.length) { focusLocation(hits[0].object.userData.locId); return; }
+    if (focusedId) { unfocus(); return; }
+  }
+  scheduleResume(IDLE_RESUME_MS);
+}
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && focusedId) unfocus(); });
+
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h, false);
+});
+
+/* ---------- animate ---------- */
+const clock = new THREE.Clock();
+let hintHidden = false;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  if (autoRotate && !isDragging && !focusingGlobe) {
+    globeGroup.rotation.y += dt * 0.12;
+  }
+  if (!isDragging && !focusingGlobe && !autoRotate && (Math.abs(velX) > 1e-5 || Math.abs(velY) > 1e-5)) {
+    globeGroup.rotation.y += velX;
+    globeGroup.rotation.x = Math.max(-0.9, Math.min(0.9, globeGroup.rotation.x + velY));
+    velX *= 0.95; velY *= 0.95;
+  }
+
+  if (focusingGlobe) {
+    _tmpQ.setFromEuler(globeGroup.rotation);
+    _tmpQ.slerp(targetGlobeQuat, 1 - Math.exp(-dt * 3.2));
+    globeGroup.quaternion.copy(_tmpQ);
+    _tmpE.setFromQuaternion(globeGroup.quaternion, 'XYZ');
+    globeGroup.rotation.copy(_tmpE);
+    if (_tmpQ.angleTo(targetGlobeQuat) < 0.012) {
+      focusingGlobe = false;
+      globeGroup.quaternion.copy(targetGlobeQuat);
+      _tmpE.setFromQuaternion(globeGroup.quaternion, 'XYZ');
+      globeGroup.rotation.copy(_tmpE);
+    }
+  }
+
+  if (camAnimating) {
+    const k = 1 - Math.exp(-dt * 3.5);
+    camera.position.lerp(targetCamPos, k);
+    currentLook.lerp(targetLook, k);
+    camera.lookAt(currentLook);
+    if (camera.position.distanceTo(targetCamPos) < 0.008) {
+      camera.position.copy(targetCamPos);
+      currentLook.copy(targetLook);
+      camera.lookAt(currentLook);
+      camAnimating = false;
+    }
+  } else {
+    camera.lookAt(currentLook);
+  }
+
+  markerVisuals.forEach((mv, i) => {
+    const hideNear = focusedId === 'bradenton';
+    const pulse = 1 + Math.sin(t * (mv.isHome ? 2.4 : 1.8) + i) * (mv.isHome ? 0.18 : 0.12);
+    mv.sprite.scale.set(mv.baseScale * pulse, mv.baseScale * pulse, 1);
+    mv.sprite.material.opacity = hideNear ? 0.08 : (mv.isHome ? 0.95 : 0.7);
+    mv.ring.material.opacity = hideNear ? 0.05 : (0.25 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2 + i)));
+    mv.core.material.opacity = hideNear ? 0.15 : 0.95;
+    mv.core.scale.setScalar(focusedId && mv.group.userData.locId === focusedId ? 1.35 : 1);
+  });
+  sun.material.opacity = 0.85 + Math.sin(t * 0.8) * 0.1;
+
+  if (!hintHidden && t > 6) {
+    document.getElementById('hint').classList.add('hide');
+    hintHidden = true;
+  }
+
+  renderer.render(scene, camera);
+}
+
+window.__focusBradenton = () => focusLocation('bradenton');
+window.__unfocus = () => unfocus();
+window.__ready = true;
+animate();
+</script>
+</body>
+</html>
