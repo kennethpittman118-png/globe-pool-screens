@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<meta name="ott-revision" content="fullscreen-sunset-pool-2" />
+<meta name="ott-revision" content="pool-first-3" />
 <meta name="theme-color" content="#e07040" />
 <title>OTT — Over The Top Screening</title>
 <style>
@@ -103,6 +103,21 @@
     font-weight: 650;
     color: #fff6e8;
   }
+  .city-chip {
+    position: fixed;
+    top: calc(58px + env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    pointer-events: none;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #fff6e8;
+    text-shadow: 0 2px 12px rgba(20, 6, 16, 0.75);
+    white-space: nowrap;
+  }
   .hint {
     position: fixed;
     left: 50%;
@@ -194,6 +209,7 @@
   @media (max-width: 720px) {
     .wordmark { font-size: 9px; letter-spacing: 0.28em; }
     .wordmark strong { font-size: 11px; letter-spacing: 0.12em; }
+    .city-chip { top: calc(52px + env(safe-area-inset-top)); font-size: 10px; letter-spacing: 0.16em; }
     .loc-bar { border-radius: 16px; padding: 6px 6px; }
     .loc-bar button { font-size: 9px; padding: 7px 6px; letter-spacing: 0.04em; }
     .hint { bottom: calc(128px + env(safe-area-inset-bottom)); font-size: 9px; }
@@ -242,9 +258,10 @@
   </div>
   <div id="fade"></div>
   <div class="wordmark">Over The Top Screening<strong>Florida Pool Enclosures</strong></div>
-  <p class="hint" id="hint">Drag to explore · Tap a marker</p>
+  <p class="city-chip" id="cityChip">Bradenton, FL</p>
+  <p class="hint" id="hint">Drag to look around</p>
   <div class="dock">
-    <button type="button" id="back" class="back" hidden>← Back to globe</button>
+    <button type="button" id="back" class="back">View globe</button>
     <nav class="loc-bar" id="locBar" aria-label="Featured locations"></nav>
   </div>
 
@@ -302,6 +319,7 @@ const LOCATIONS = [
   const hintEl = document.getElementById('hint');
   const backBtn = document.getElementById('back');
   const locBar = document.getElementById('locBar');
+  const cityChip = document.getElementById('cityChip');
 
   let renderer;
   try {
@@ -342,7 +360,8 @@ const LOCATIONS = [
 
   /* ---------- sunset sky, parented to the camera so it always fills the frame ---------- */
   const skyUniforms = {
-    sunDir: { value: new THREE.Vector3(0.62, 0.42, -0.66).normalize() },
+    sunDir: { value: new THREE.Vector3(0.22, 0.38, -0.9).normalize() },
+    warmth: { value: 0 },
   };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(40, isCoarse ? 24 : 32, isCoarse ? 16 : 24),
@@ -362,10 +381,13 @@ const LOCATIONS = [
       fragmentShader: `
         varying vec3 vDir;
         uniform vec3 sunDir;
+        uniform float warmth;
         void main() {
           vec3 dir = normalize(vDir);
           float h = dir.y;
           vec3 hor = vec3(0.99, 0.52, 0.20);
+          hor = mix(hor, vec3(1.0, 0.74, 0.30), clamp(warmth, 0.0, 1.0));
+          hor = mix(hor, vec3(0.82, 0.26, 0.40), clamp(-warmth, 0.0, 1.0));
           vec3 pink = vec3(0.90, 0.34, 0.40);
           vec3 mag = vec3(0.58, 0.20, 0.46);
           vec3 zen = vec3(0.14, 0.09, 0.26);
@@ -606,7 +628,6 @@ const LOCATIONS = [
 
   /* ---------- pool cage ---------- */
   const poolGroup = new THREE.Group();
-  poolGroup.visible = false;
   scene.add(poolGroup);
 
   function makeScreenTexture() {
@@ -811,15 +832,30 @@ const LOCATIONS = [
     }
     return g;
   }
-  [[-1.7, -4.15, 1.85], [2.15, -4.45, 1.65], [-5.6, -3.2, 1.25], [5.8, -2.6, 1.15]].forEach(([x, z, s]) => {
+  [[-8.2, -7.4, 1.7], [8.4, -6.8, 1.45], [-7.6, 6.2, 1.25], [7.8, 6.6, 1.2]].forEach(([x, z, s]) => {
     const p = makePalm();
     p.position.set(x, 0, z);
     p.scale.setScalar(s);
     poolGroup.add(p);
   });
 
-  const poolCamPos = new THREE.Vector3(0.06, 1.72, 2.35);
-  const poolLook = new THREE.Vector3(0.0, 0.95, -0.85);
+  const poolPivot = new THREE.Vector3(0, 0.78, -0.35);
+  const CITY = {
+    bradenton: { yaw: 0.08, pitch: 0.46, sun: [0.22, 0.38, -0.90], key: [-2.2, 5.6, -3.2], warmth: 0.0 },
+    sarasota: { yaw: 0.95, pitch: 0.30, sun: [0.78, 0.20, -0.52], key: [3.4, 4.0, -2.2], warmth: 0.22 },
+    tampa: { yaw: -0.62, pitch: 0.44, sun: [-0.2, 0.58, -0.78], key: [-4.2, 7.2, -1.2], warmth: -0.12 },
+    stpete: { yaw: 1.45, pitch: 0.28, sun: [0.9, 0.16, -0.32], key: [4.2, 3.4, -0.8], warmth: 0.32 },
+    naples: { yaw: -1.2, pitch: 0.33, sun: [-0.62, 0.24, -0.7], key: [-3.2, 4.2, -3.6], warmth: 0.14 },
+    orlando: { yaw: 2.15, pitch: 0.5, sun: [0.05, 0.68, -0.62], key: [1.2, 8.2, -1.8], warmth: -0.28 },
+    miami: { yaw: -2.05, pitch: 0.24, sun: [0.48, 0.14, -0.82], key: [2.8, 3.0, -4.2], warmth: 0.4 },
+  };
+  let poolYaw = CITY.bradenton.yaw;
+  let poolPitch = CITY.bradenton.pitch;
+  let poolYawVel = 0;
+  let poolPitchVel = 0;
+  let yawTarget = poolYaw;
+  let pitchTarget = poolPitch;
+  let orbitBlend = 0;
   const globeCamPos = new THREE.Vector3();
   const targetCamPos = new THREE.Vector3();
   const targetLook = new THREE.Vector3();
@@ -836,8 +872,7 @@ const LOCATIONS = [
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      if ((phase === 'pool' || pendingPool) && focusedId === loc.id) unfocus();
-      else focusLocation(loc.id);
+      focusLocation(loc.id);
     });
     locBar.appendChild(btn);
     locButtons[loc.id] = btn;
@@ -848,7 +883,7 @@ const LOCATIONS = [
   backBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     e.preventDefault();
-    unfocus();
+    toggleView();
   });
 
   /* ---------- interaction + camera fit ---------- */
@@ -859,8 +894,8 @@ const LOCATIONS = [
   const q = new THREE.Quaternion();
   const targetGlobeQuat = new THREE.Quaternion();
 
-  let phase = 'globe';
-  let focusedId = null;
+  let phase = 'pool';
+  let focusedId = 'bradenton';
   let pendingPool = false;
   let pendingPoolAt = 0;
   let dragging = false;
@@ -874,6 +909,7 @@ const LOCATIONS = [
   let vyaw = 0;
   let vpitch = 0;
   let autoRotate = true;
+  let hintUntil = 0;
   let focusingGlobe = false;
   let camAnimating = false;
   let idle = 0;
@@ -885,9 +921,9 @@ const LOCATIONS = [
   let lastBufW = -1;
   let lastBufH = -1;
 
-  window.__mode = 'globe';
+  window.__mode = 'pool';
   window.__settled = true;
-  window.__revision = 'fullscreen-sunset-pool-2';
+  window.__revision = 'pool-first-3';
 
   function resetIdle(limit) {
     idle = 0;
@@ -956,6 +992,7 @@ const LOCATIONS = [
       camera.updateProjectionMatrix();
     }
     applyFov(phase === 'globe' && !dragging && !pendingPool && fadeState === 'idle');
+    if (phase === 'pool' && !dragging && orbitBlend === 0) placePoolCamera();
     if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
   }
 
@@ -966,19 +1003,83 @@ const LOCATIONS = [
     fadeEl.style.pointerEvents = 'auto';
   }
 
+  function clampPitch(p) {
+    return Math.max(0.18, Math.min(0.7, p));
+  }
+
+  function showHint(text) {
+    hintEl.textContent = text;
+    hintEl.classList.remove('hide');
+    hintUntil = performance.now() + 5200;
+  }
+
+  function setToggleLabel() {
+    backBtn.textContent = phase === 'pool' ? 'View globe' : 'Back to pool';
+  }
+
+  function poolRadius() {
+    const aspect = camera.aspect || 1;
+    if (aspect < 0.75) return 7.5;
+    if (aspect < 1.15) return 5.6;
+    return 4.7;
+  }
+
+  function placePoolCamera() {
+    const radius = poolRadius();
+    const cy = Math.cos(poolPitch);
+    camera.position.set(
+      poolPivot.x + radius * cy * Math.sin(poolYaw),
+      poolPivot.y + radius * Math.sin(poolPitch),
+      poolPivot.z + radius * cy * Math.cos(poolYaw)
+    );
+    currentLook.copy(poolPivot);
+    targetCamPos.copy(camera.position);
+    targetLook.copy(poolPivot);
+    camera.lookAt(currentLook);
+    camAnimating = false;
+  }
+
+  function applyCity(id, animateOrbit) {
+    const loc = LOCATIONS.find((l) => l.id === id);
+    const view = CITY[id];
+    if (!loc || !view) return;
+    focusedId = id;
+    setActiveButton(id);
+    cityChip.textContent = loc.name;
+    document.body.dataset.city = id;
+    skyUniforms.sunDir.value.set(view.sun[0], view.sun[1], view.sun[2]).normalize();
+    skyUniforms.warmth.value = view.warmth;
+    key.position.set(view.key[0], view.key[1], view.key[2]);
+    let destYaw = view.yaw;
+    while (destYaw - poolYaw > Math.PI) destYaw -= Math.PI * 2;
+    while (destYaw - poolYaw < -Math.PI) destYaw += Math.PI * 2;
+    yawTarget = destYaw;
+    pitchTarget = view.pitch;
+    if (animateOrbit && phase === 'pool') {
+      orbitBlend = 1;
+      autoRotate = false;
+      poolYawVel = 0;
+      poolPitchVel = 0;
+    } else {
+      poolYaw = destYaw;
+      poolPitch = pitchTarget;
+      orbitBlend = 0;
+      if (phase === 'pool') placePoolCamera();
+    }
+  }
+
   function focusLocation(id) {
     const loc = LOCATIONS.find((l) => l.id === id);
-    if (!loc) return;
-    if (fadeState !== 'idle') return;
+    if (!loc || fadeState !== 'idle') return;
     if (phase === 'pool') {
-      focusedId = id;
-      setActiveButton(id);
-      autoRotate = false;
-      resetIdle(9);
+      if (focusedId === id && orbitBlend === 0) return;
+      applyCity(id, true);
+      resetIdle(6);
       return;
     }
     focusedId = id;
     setActiveButton(id);
+    cityChip.textContent = loc.name;
     autoRotate = false;
     vyaw = 0;
     vpitch = 0;
@@ -986,14 +1087,8 @@ const LOCATIONS = [
     const shown = displayLatLon(loc);
     targetGlobeQuat.copy(quatFacing(shown.lat, shown.lon));
     pendingPool = true;
-    pendingPoolAt = performance.now() + 380;
-    const d = globeCamPos.length() || camera.position.length();
-    targetCamPos.set(0, d * 0.02, d * 0.8);
-    targetLook.set(0, 0.04, 0);
-    camAnimating = true;
+    pendingPoolAt = performance.now() + 420;
     resetIdle(60);
-    hintEl.classList.add('hide');
-    document.body.dataset.mode = 'entering';
   }
 
   function showPool() {
@@ -1007,15 +1102,13 @@ const LOCATIONS = [
     camera.fov = 68;
     camera.aspect = (canvas.clientWidth || window.innerWidth) / (canvas.clientHeight || window.innerHeight);
     camera.updateProjectionMatrix();
-    camera.position.copy(poolCamPos);
-    currentLook.copy(poolLook);
-    targetCamPos.copy(poolCamPos);
-    targetLook.copy(poolLook);
-    camera.lookAt(currentLook);
-    camAnimating = false;
-    skyUniforms.sunDir.value.set(0.15, 0.42, -0.9).normalize();
-    backBtn.hidden = false;
-    resetIdle(14);
+    applyCity(focusedId || 'bradenton', false);
+    setToggleLabel();
+    showHint('Drag to look around');
+    autoRotate = true;
+    poolYawVel = 0;
+    poolPitchVel = 0;
+    resetIdle(Infinity);
   }
 
   function showGlobe() {
@@ -1024,29 +1117,37 @@ const LOCATIONS = [
     document.body.dataset.mode = 'globe';
     pendingPool = false;
     focusingGlobe = false;
-    focusedId = null;
-    setActiveButton(null);
+    orbitBlend = 0;
     globeGroup.visible = true;
     poolGroup.visible = false;
-    backBtn.hidden = true;
+    const loc = LOCATIONS.find((l) => l.id === (focusedId || 'bradenton'));
+    if (loc) {
+      const shown = displayLatLon(loc);
+      globeGroup.quaternion.copy(quatFacing(shown.lat, shown.lon));
+      setActiveButton(loc.id);
+    }
     camera.aspect = (canvas.clientWidth || window.innerWidth) / (canvas.clientHeight || window.innerHeight);
     camera.fov = globeFov(camera.aspect);
     camera.updateProjectionMatrix();
     fitGlobeCamera(true);
     skyUniforms.sunDir.value.set(0.62, 0.42, -0.66).normalize();
-    autoRotate = false;
-    resetIdle(5);
+    skyUniforms.warmth.value = 0;
+    setToggleLabel();
+    showHint('Drag to explore · Tap a marker');
+    autoRotate = true;
+    vyaw = 0;
+    vpitch = 0;
+    resetIdle(Infinity);
   }
 
-  function unfocus() {
+  function toggleView() {
     if (fadeState !== 'idle') return;
-    if (phase !== 'pool' && !pendingPool) return;
-    pendingPool = false;
-    beginFade(showGlobe);
+    if (phase === 'pool') beginFade(showGlobe);
+    else beginFade(showPool);
   }
 
   function onDown(e) {
-    if (fadeState !== 'idle' || phase !== 'globe') return;
+    if (fadeState !== 'idle') return;
     dragging = true;
     moved = false;
     pointerType = e.pointerType || 'mouse';
@@ -1055,9 +1156,14 @@ const LOCATIONS = [
     lastMoveT = performance.now();
     vyaw = 0;
     vpitch = 0;
+    poolYawVel = 0;
+    poolPitchVel = 0;
     autoRotate = false;
-    pendingPool = false;
-    focusingGlobe = false;
+    orbitBlend = 0;
+    if (phase === 'globe') {
+      pendingPool = false;
+      focusingGlobe = false;
+    }
     canvas.classList.add('dragging');
     if (pointerType === 'mouse') {
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
@@ -1066,7 +1172,7 @@ const LOCATIONS = [
   }
 
   function onMove(e) {
-    if (!dragging || phase !== 'globe') return;
+    if (!dragging) return;
     const now = performance.now();
     const dx = e.clientX - lastPX;
     const dy = e.clientY - lastPY;
@@ -1076,14 +1182,24 @@ const LOCATIONS = [
     lastPY = e.clientY;
     const dtMove = Math.max(0.016, (now - lastMoveT) / 1000);
     lastMoveT = now;
-    const yaw = dx * 0.0052;
-    const pitch = dy * 0.0036;
-    q.setFromAxisAngle(AXIS_Y, yaw);
-    globeGroup.quaternion.premultiply(q);
-    q.setFromAxisAngle(AXIS_X, pitch);
-    globeGroup.quaternion.premultiply(q);
-    vyaw = yaw / dtMove;
-    vpitch = pitch / dtMove;
+    if (phase === 'globe') {
+      const yaw = dx * 0.0052;
+      const pitch = dy * 0.0036;
+      q.setFromAxisAngle(AXIS_Y, yaw);
+      globeGroup.quaternion.premultiply(q);
+      q.setFromAxisAngle(AXIS_X, pitch);
+      globeGroup.quaternion.premultiply(q);
+      vyaw = yaw / dtMove;
+      vpitch = pitch / dtMove;
+      return;
+    }
+    const yaw = -dx * 0.005;
+    const pitch = dy * 0.0034;
+    poolYaw += yaw;
+    poolPitch = clampPitch(poolPitch + pitch);
+    poolYawVel = yaw / dtMove;
+    poolPitchVel = pitch / dtMove;
+    placePoolCamera();
   }
 
   function onUp(e) {
@@ -1117,7 +1233,7 @@ const LOCATIONS = [
   document.addEventListener('gesturestart', blockScroll, { passive: false });
   document.addEventListener('gesturechange', blockScroll, { passive: false });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') unfocus();
+    if (e.key === 'Escape') toggleView();
   });
 
   canvas.addEventListener('webglcontextlost', (event) => {
@@ -1143,7 +1259,8 @@ const LOCATIONS = [
   }
 
   window.__focusBradenton = () => focusLocation('bradenton');
-  window.__unfocus = () => unfocus();
+  window.__viewGlobe = () => { if (phase === 'pool') toggleView(); };
+  window.__viewPool = () => { if (phase === 'globe') toggleView(); };
   window.__metrics = () => ({
     mode: window.__mode,
     settled: window.__settled,
@@ -1153,10 +1270,16 @@ const LOCATIONS = [
     bufH: canvas.height,
     dpr: renderer.getPixelRatio(),
     camZ: camera.position.z,
+    camX: camera.position.x,
     camY: camera.position.y,
     fov: camera.fov,
     aspect: camera.aspect,
     focusedId,
+    yaw: poolYaw,
+    pitch: poolPitch,
+    warmth: skyUniforms.warmth.value,
+    toggle: backBtn.textContent,
+    city: cityChip.textContent,
   });
   window.__grabResolve = null;
   window.__grab = () => new Promise((resolve) => { window.__grabResolve = resolve; });
@@ -1172,7 +1295,16 @@ const LOCATIONS = [
   };
 
   const clock = new THREE.Clock();
+  globeGroup.visible = false;
+  poolGroup.visible = true;
+  setActiveButton('bradenton');
+  setToggleLabel();
+  document.body.dataset.mode = 'pool';
+  document.body.dataset.city = 'bradenton';
   resize();
+  applyCity('bradenton', false);
+  showHint('Drag to look around');
+  autoRotate = true;
 
   function animate() {
     requestAnimationFrame(animate);
@@ -1205,13 +1337,43 @@ const LOCATIONS = [
       globeGroup.quaternion.normalize();
     }
 
+    if (phase === 'pool' && !dragging) {
+      if (orbitBlend > 0) {
+        const k = 1 - Math.exp(-dt * 3.4);
+        poolYaw += (yawTarget - poolYaw) * k;
+        poolPitch += (pitchTarget - poolPitch) * k;
+        poolPitch = clampPitch(poolPitch);
+        placePoolCamera();
+        if (Math.abs(yawTarget - poolYaw) < 0.012 && Math.abs(pitchTarget - poolPitch) < 0.012) {
+          poolYaw = yawTarget;
+          poolPitch = pitchTarget;
+          orbitBlend = 0;
+          placePoolCamera();
+        }
+      } else if (autoRotate) {
+        poolYaw += 0.14 * dt;
+        placePoolCamera();
+      } else if (Math.abs(poolYawVel) + Math.abs(poolPitchVel) > 0.01) {
+        poolYaw += poolYawVel * dt;
+        poolPitch = clampPitch(poolPitch + poolPitchVel * dt);
+        const decay = Math.exp(-dt * 3.2);
+        poolYawVel *= decay;
+        poolPitchVel *= decay;
+        placePoolCamera();
+      }
+    }
+
     if (!dragging) {
       idle += dt;
       if (idle > idleLimit) {
         idleLimit = Infinity;
-        if (phase === 'pool' && fadeState === 'idle') unfocus();
-        else if (phase === 'globe' && !pendingPool) autoRotate = true;
+        autoRotate = true;
       }
+    }
+
+    if (hintUntil && performance.now() > hintUntil) {
+      hintEl.classList.add('hide');
+      hintUntil = 0;
     }
 
     if (pendingPool && fadeState === 'idle' && performance.now() >= pendingPoolAt) {
